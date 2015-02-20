@@ -4,7 +4,7 @@ module God
 
     attr_accessor :name, :uid, :gid, :log, :log_cmd, :err_log, :err_log_cmd,
                   :start, :stop, :restart, :unix_socket, :chroot, :env, :dir,
-                  :stop_timeout, :stop_signal, :umask
+                  :stop_timeout, :stop_signal, :umask, :gids
 
     def initialize
       self.log = '/dev/null'
@@ -79,6 +79,18 @@ module God
         rescue ArgumentError
           valid = false
           applog(self, :error, "GID for '#{self.gid}' does not exist")
+        end
+      end
+
+      # if multiple gids are provided
+      if self.gids
+        self.gids.each do |g|
+          begin
+            Etc.getgrnam(g)
+          rescue ArgumentError
+            valid = false
+            applog(self, :error, "GID for '#{g}' does not exist")
+          end
         end
       end
 
@@ -299,10 +311,12 @@ module God
         uid_num = Etc.getpwnam(self.uid).uid if self.uid
         gid_num = Etc.getgrnam(self.gid).gid if self.gid
         gid_num = Etc.getpwnam(self.uid).gid if self.gid.nil? && self.uid
+        gids_num = (self.gids || []).map{|g| Etc.getgrnam(g).gid}
 
         ::Dir.chroot(self.chroot) if self.chroot
         ::Process.setsid
         ::Process.groups = [gid_num] if gid_num
+        ::Process.groups |= gids_num unless gids_num.empty?
         ::Process.initgroups(self.uid, gid_num) if self.uid && gid_num
         ::Process::Sys.setgid(gid_num) if gid_num
         ::Process::Sys.setuid(uid_num) if self.uid
